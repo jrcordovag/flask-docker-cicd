@@ -1,0 +1,35 @@
+name: Fase 1 - Calidad y Seguridad de Contenedores
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-y-seguridad:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      # STEP 1: Analizar las buenas prácticas del Dockerfile (Hadolint)
+      - name: Linter de Dockerfile (Hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      # STEP 2: Compilar la imagen localmente para poder escanearla
+      - name: Compilar imagen Docker local
+        run: |
+          docker build -t mi-flask-app:test .
+
+      # STEP 3: Escanear la imagen en busca de vulnerabilidades (Trivy)
+      - name: Escáner de Vulnerabilidades (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'mi-flask-app:test'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
