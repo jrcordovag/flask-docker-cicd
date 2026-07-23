@@ -27,7 +27,7 @@ jobs:
 
       # STEP 3: Escanear la imagen en busca de vulnerabilidades (Trivy)
       - name: Escáner de Vulnerabilidades (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'mi-flask-app:test'
           format: 'table'
