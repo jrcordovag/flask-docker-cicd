@@ -1,10 +1,15 @@
-name: Fase 1 - Calidad y Seguridad de Contenedores
+name: CI/CD - Calidad, Seguridad y Registro de Contenedores
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
+# Permisos requeridos para que GitHub Actions pueda publicar paquetes en GHCR
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   lint-y-seguridad:
@@ -20,8 +25,8 @@ jobs:
         with:
           dockerfile: ./Dockerfile
 
-      # STEP 2: Compilar la imagen localmente para poder escanearla
-      - name: Compilar imagen Docker local
+      # STEP 2: Compilar la imagen localmente para escanearla
+      - name: Compilar imagen Docker local para pruebas
         run: |
           docker build -t mi-flask-app:test .
 
@@ -33,3 +38,48 @@ jobs:
           format: 'table'
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
+
+  # ==========================================
+  # TRABAJO DE COMPILACIÓN Y PUBLICACIÓN (GHCR)
+  # ==========================================
+  build-and-push:
+    needs: lint-y-seguridad
+    runs-on: ubuntu-latest
+    # Solo publica la imagen en push a main (no en Pull Requests)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      # STEP 1: Configurar Docker Buildx (Permite capas avanzadas y caché)
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # STEP 2: Autenticarse en GitHub Container Registry (GHCR)
+      - name: Autenticacion en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # STEP 3: Generar metadatos y etiquetas automáticas (latest + git sha)
+      - name: Extraer metadatos de Docker (Tags y Labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      # STEP 4: Compilar y publicar la imagen en el Registry
+      - name: Compilar y hacer Push a GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
