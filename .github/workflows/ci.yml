@@ -1,4 +1,4 @@
-name: CI/CD - Calidad, Seguridad y Registro de Contenedores
+name: CI/CD - Calidad, Seguridad, Pruebas y Registro
 
 on:
   push:
@@ -6,31 +6,38 @@ on:
   pull_request:
     branches: [ main ]
 
-# Permisos requeridos para que GitHub Actions pueda publicar paquetes en GHCR
 permissions:
   contents: read
   packages: write
 
 jobs:
-  lint-y-seguridad:
+  pipeline-contenedor:
     runs-on: ubuntu-latest
 
     steps:
       - name: Descargar el codigo
         uses: actions/checkout@v4
 
-      # STEP 1: Analizar las buenas prácticas del Dockerfile (Hadolint)
+      # STEP 1: Linter de Dockerfile
       - name: Linter de Dockerfile (Hadolint)
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: ./Dockerfile
 
-      # STEP 2: Compilar la imagen localmente para escanearla
-      - name: Compilar imagen Docker local para pruebas
-        run: |
-          docker build -t mi-flask-app:test .
+      # STEP 2: Configurar Docker Buildx
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      # STEP 3: Escanear la imagen en busca de vulnerabilidades (Trivy)
+      # STEP 3: Compilar imagen para pruebas estáticas
+      - name: Compilar imagen Docker local
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: mi-flask-app:test
+
+      # STEP 4: Escáner Trivy
       - name: Escáner de Vulnerabilidades (Trivy)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -39,33 +46,37 @@ jobs:
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
 
-  # ==========================================
-  # TRABAJO DE COMPILACIÓN Y PUBLICACIÓN (GHCR)
-  # ==========================================
-  build-and-push:
-    needs: lint-y-seguridad
-    runs-on: ubuntu-latest
-    # Solo publica la imagen en push a main (no en Pull Requests)
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      # STEP 5: PRUEBAS DE INTEGRACIÓN CON DOCKER COMPOSE
+      - name: Levantamiento del entorno de pruebas (Docker Compose)
+        run: |
+          docker compose -f docker-compose.test.yml up -d --build
+          # Esperar a que la API responda
+          sleep 5
 
-    steps:
-      - name: Descargar el codigo
-        uses: actions/checkout@v4
+      # STEP 6: Ejecutar Pruebas con pytest
+      - name: Ejecutar pruebas de integración
+        run: |
+          pip install pytest requests
+          pytest tests/test_integration.py -v
 
-      # STEP 1: Configurar Docker Buildx (Permite capas avanzadas y caché)
-      - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # STEP 7: Detener entorno de pruebas
+      - name: Limpiar entorno de pruebas
+        if: always()
+        run: |
+          docker compose -f docker-compose.test.yml down -v
 
-      # STEP 2: Autenticarse en GitHub Container Registry (GHCR)
-      - name: Autenticacion en GHCR
+      # STEP 8: Autenticación en GHCR (Solo en push a main)
+      - name: Autenticación en GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # STEP 3: Generar metadatos y etiquetas automáticas (latest + git sha)
+      # STEP 9: Extraer metadatos
       - name: Extraer metadatos de Docker (Tags y Labels)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -74,8 +85,9 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
-      # STEP 4: Compilar y publicar la imagen en el Registry
-      - name: Compilar y hacer Push a GHCR
+      # STEP 10: Publicar Imagen en GHCR
+      - name: Publicar Imagen en GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: docker/build-push-action@v5
         with:
           context: .
