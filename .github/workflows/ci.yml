@@ -120,21 +120,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # STEP 2: Descargar la versión inmutable específica desde GHCR
+      # STEP 2: Descargar la versión inmutable específica usando el OUTPUT
       - name: Descargar imagen desplegable desde GHCR
         run: |
-          IMAGE_NAME="ghcr.io/${{ github.repository }}:latest"
-          echo "Descargando imagen de producción: $IMAGE_NAME"
+          TAG="${{ needs.ci-y-publicacion.outputs.image_tag }}"
+          IMAGE_NAME="ghcr.io/${{ github.repository }}:$TAG"
+          
+          echo "Descargando versión inmutable exacta: $IMAGE_NAME"
           docker pull $IMAGE_NAME
 
-      # STEP 3: Simulación de Despliegue en Producción
+      # STEP 3: Simulación de Despliegue en Producción con el TAG inmutable
       - name: Iniciar contenedor en producción
         run: |
+          TAG="${{ needs.ci-y-publicacion.outputs.image_tag }}"
+          IMAGE_NAME="ghcr.io/${{ github.repository }}:$TAG"
+          
           docker run -d \
             --name app-produccion \
             -p 5000:5000 \
             -e DATABASE_URL="sqlite:///:memory:" \
-            ghcr.io/${{ github.repository }}:latest
+            $IMAGE_NAME
           
           # Pausa para dar tiempo al arranque del servidor Gunicorn
           sleep 3
