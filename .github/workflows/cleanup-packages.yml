@@ -1,0 +1,33 @@
+name: Limpieza Automática de Paquetes en GHCR
+
+on:
+  # Se ejecuta automáticamente todos los domingos a medianoche
+  schedule:
+    - cron: '0 0 * * 0'
+  # Permite ejecutarlo manualmente desde la pestaña Actions cuando quieras
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  limpiar-paquetes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Eliminar versiones antiguas de contenedores
+        uses: actions/delete-package-versions@v5
+        with:
+          # Nombre de la imagen/paquete tal como aparece en GitHub Packages
+          package-name: 'flask-docker-cicd'
+          
+          # Tipo de paquete: container, npm, maven, rubygems, nuget, etc.
+          package-type: 'container'
+          
+          # Mantiene las N versiones más recientes y borra las demás
+          min-versions-to-keep: 3
+          
+          # Evita borrar versiones con tags específicos (ej. main, latest, v1.0.0)
+          ignore-versions: '^(latest|main|v.*)$'
+          
+          # Token con permisos para borrar paquetes
+          token: ${{ secrets.GITHUB_TOKEN }}
